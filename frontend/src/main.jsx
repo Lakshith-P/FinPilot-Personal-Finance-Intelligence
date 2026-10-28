@@ -1,666 +1,676 @@
-
-import React, { useEffect, useState } from 'react';
-import { createRoot } from 'react-dom/client';
+import React, { useEffect, useState } from "react";
+import { createRoot } from "react-dom/client";
 import {
-  Wallet,
-  Sparkles,
-  ArrowUpRight,
-  ReceiptText,
-  CircleCheck,
-  AlertTriangle,
-  RefreshCw,
-  LayoutDashboard,
-  ListOrdered,
-  ShieldCheck
-} from 'lucide-react';
-import './style.css';
+  Wallet, LayoutDashboard, Mic, Sparkles, ReceiptText, Target,
+  ChartNoAxesCombined, FileText, ListOrdered, RefreshCw, Check,
+  AlertTriangle, TrendingUp, Plus, Menu, X, LoaderCircle
+} from "lucide-react";
+import "./style.css";
 
-// Render frontend environment variable:
-// VITE_API_URL=https://your-actual-backend.onrender.com
-// Local development falls back to the local FastAPI server.
-const API = (
-  import.meta.env.VITE_API_URL || 'http://localhost:8000'
-).replace(/\/+$/, '');
-
+const API = (import.meta.env.VITE_API_URL || "http://localhost:8000")
+  .replace(/\/+$/, "");
 const categories = [
-  'Food',
-  'Transport',
-  'Shopping',
-  'Bills',
-  'Health',
-  'Education',
-  'Entertainment',
-  'Travel',
-  'Savings',
-  'Other'
+  "Food", "Transport", "Shopping", "Bills", "Health", "Education",
+  "Entertainment", "Travel", "Savings", "Other"
 ];
+const today = new Date().toLocaleDateString("en-CA");
+const currentMonth = today.slice(0, 7);
+const money = value => new Intl.NumberFormat("en-IN", {
+  style: "currency", currency: "INR", maximumFractionDigits: 2
+}).format(Number(value) || 0);
 
-const money = n =>
-  new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 2
-  }).format(n || 0);
-
-async function readResponse(response) {
-  const contentType = response.headers.get('content-type') || '';
-
-  if (contentType.includes('application/json')) {
-    return response.json();
-  }
-
-  const body = await response.text();
-
+async function api(path, options = {}) {
+  const response = await fetch(`${API}${path}`, options);
+  let data = {};
+  try { data = await response.json(); } catch {}
   if (!response.ok) {
-    throw new Error(body || `Request failed (${response.status})`);
+    throw new Error(data.detail || `Request failed (${response.status})`);
   }
-
-  throw new Error('The backend returned an unexpected response.');
+  return data;
 }
 
-function getErrorMessage(error, fallback) {
-  if (error instanceof TypeError) {
-    return 'Cannot reach the backend. Check the backend URL, service status, and CORS settings.';
-  }
-
-  return error?.message || fallback;
-}
+const jsonOptions = body => ({
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(body)
+});
 
 function App() {
-  const [page, setPage] = useState('overview');
-  const [text, setText] = useState(
-    'Spent ₹250 on lunch at Cafe Niloufer today'
-  );
-  const [draft, setDraft] = useState(null);
-  const [rows, setRows] = useState([]);
+  const [page, setPage] = useState("Overview");
+  const [mobileMenu, setMobileMenu] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [backendOK, setBackendOK] = useState(false);
+
+  const [transactions, setTransactions] = useState([]);
   const [summary, setSummary] = useState({
-    total_spent: 0,
-    transaction_count: 0,
-    by_category: []
+    total_spent: 0, transaction_count: 0, by_category: []
   });
 
-  const [busy, setBusy] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  const [health, setHealth] = useState(false);
+  const [expenseText, setExpenseText] = useState(
+    "Spent ₹250 on lunch at Cafe Niloufer today"
+  );
+  const [draft, setDraft] = useState(null);
 
-  async function load() {
-    setLoading(true);
+  const [receiptText, setReceiptText] = useState("");
+  const [receiptFileName, setReceiptFileName] = useState("");
 
+  const [notes, setNotes] = useState("");
+  const [noteDrafts, setNoteDrafts] = useState([]);
+  const [unclassified, setUnclassified] = useState([]);
+
+  const [goalText, setGoalText] = useState(
+    "I want to save ₹30000 in six months for a new laptop."
+  );
+  const [goalDraft, setGoalDraft] = useState(null);
+  const [goals, setGoals] = useState([]);
+  const [manualGoal, setManualGoal] = useState({
+    name: "", target_amount: "", current_amount: "0", target_date: ""
+  });
+
+  const [budgets, setBudgets] = useState([]);
+  const [budgetCategory, setBudgetCategory] = useState("Food");
+  const [budgetAmount, setBudgetAmount] = useState("5000");
+
+  const [insightMonth, setInsightMonth] = useState(currentMonth);
+  const [insights, setInsights] = useState(null);
+
+  const nav = [
+    ["Overview", LayoutDashboard],
+    ["Expense capture", Sparkles],
+    ["Receipts", ReceiptText],
+    ["Classify notes", FileText],
+    ["Savings goals", Target],
+    ["Budgets", ChartNoAxesCombined],
+    ["Monthly insights", TrendingUp],
+    ["Ledger", ListOrdered]
+  ];
+
+  async function refresh() {
     try {
-      const [transactionsResponse, summaryResponse, healthResponse] =
-        await Promise.all([
-          fetch(`${API}/api/transactions`),
-          fetch(`${API}/api/summary`),
-          fetch(`${API}/api/health`)
-        ]);
-
-      if (
-        !transactionsResponse.ok ||
-        !summaryResponse.ok ||
-        !healthResponse.ok
-      ) {
-        throw new Error('A backend request failed. Check the backend logs.');
-      }
-
-      const [transactions, summaryData] = await Promise.all([
-        readResponse(transactionsResponse),
-        readResponse(summaryResponse),
-        readResponse(healthResponse)
+      const [tx, sums, health] = await Promise.all([
+        api("/api/transactions"),
+        api("/api/summary"),
+        api("/api/health")
       ]);
+      setTransactions(tx);
+      setSummary(sums);
+      setBackendOK(health.status === "ok");
+      setError("");
+    } catch (e) {
+      setBackendOK(false);
+      setError(`Backend connection failed: ${e.message}`);
+    }
+  }
 
-      setRows(transactions);
-      setSummary(summaryData);
-      setHealth(true);
-      setError('');
-    } catch (err) {
-      setHealth(false);
-      setError(
-        getErrorMessage(
-          err,
-          'Could not load FinPilot data. Check your backend configuration.'
-        )
+  async function refreshExtras() {
+    try {
+      const [g, b] = await Promise.all([
+        api("/api/goals"), api("/api/budgets")
+      ]);
+      setGoals(g);
+      setBudgets(b);
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+    refreshExtras();
+  }, []);
+
+  function message(text) {
+    setNotice(text);
+    setError("");
+  }
+
+  function updateDraft(key, value) {
+    setDraft(old => ({
+      ...old,
+      [key]: value,
+      missing_fields: (old.missing_fields || []).filter(k => k !== key)
+    }));
+  }
+
+  async function captureExpense(text = expenseText) {
+    setLoading(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await api(
+        "/api/transactions/extract",
+        jsonOptions({ text })
       );
+      setDraft({
+        ...result,
+        amount: result.amount ?? "",
+        transaction_date: result.transaction_date ?? today,
+        merchant: result.merchant ?? "",
+        note: result.note || text,
+        source_text: text
+      });
+      setExpenseText(text);
+      message("Draft created. Check every field before saving.");
+    } catch (e) {
+      setError(e.message);
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => {
-    load();
-  }, []);
-
-  function update(key, value) {
-    setDraft(current => ({
-      ...current,
-      [key]: value,
-      missing_fields: (current.missing_fields || []).filter(
-        field => field !== key
-      )
-    }));
-  }
-
-  async function extract(event) {
-    event.preventDefault();
-    setError('');
-    setNotice('');
-    setDraft(null);
-
-    if (!text.trim()) {
-      setError('Enter an expense description before analyzing.');
+  function startVoice() {
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setError("Speech recognition is unavailable in this browser. Try Chrome or type your expense.");
       return;
     }
 
-    setBusy(true);
-
-    try {
-      const response = await fetch(`${API}/api/transactions/extract`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text })
-      });
-
-      const data = await readResponse(response);
-
-      if (!response.ok) {
-        throw new Error(
-          typeof data.detail === 'string'
-            ? data.detail
-            : 'Expense extraction failed.'
-        );
-      }
-
-      setDraft({
-        ...data,
-        amount: data.amount ?? '',
-        transaction_date: data.transaction_date ?? '',
-        merchant: data.merchant ?? '',
-        note: data.note || text,
-        source_text: text
-      });
-
-      setNotice('Draft extracted. Review every field before saving.');
-    } catch (err) {
-      setError(
-        getErrorMessage(err, 'Expense extraction failed. Please retry.')
-      );
-    } finally {
-      setBusy(false);
-    }
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-IN";
+    recognition.interimResults = false;
+    recognition.onresult = event => {
+      const spoken = event.results[0][0].transcript;
+      setExpenseText(spoken);
+      captureExpense(spoken);
+    };
+    recognition.onerror = () => setError(
+      "Voice capture failed. Check your microphone permission."
+    );
+    recognition.start();
   }
 
-  async function save() {
-    setError('');
-    setNotice('');
-
-    if (!draft) {
-      setError('Analyze an expense first.');
-      return;
-    }
+  async function saveTransaction(item = draft) {
+    if (!item) return;
 
     if (
-      !draft.amount ||
-      !Number.isFinite(Number(draft.amount)) ||
-      Number(draft.amount) <= 0 ||
-      !draft.transaction_date ||
-      !draft.merchant?.trim() ||
-      !draft.note?.trim()
+      !item.amount || Number(item.amount) <= 0 ||
+      !item.transaction_date || !item.merchant?.trim() ||
+      !item.note?.trim()
     ) {
-      setError(
-        'Amount, date, merchant and note are required. Complete the missing fields before saving.'
-      );
+      setError("Complete the amount, date, merchant and note first.");
       return;
     }
 
-    const confirmed = window.confirm(
-      `Save this transaction?\n\n` +
-      `${money(Number(draft.amount))} · ${draft.merchant}\n` +
-      `${draft.category || 'Other'} · ${draft.transaction_date}\n\n` +
-      `Only save if these details are correct.`
-    );
+    if (!window.confirm(`Save ${money(item.amount)} at ${item.merchant}?`)) {
+      return;
+    }
 
-    if (!confirmed) return;
-
-    setSaving(true);
-
+    setLoading(true);
     try {
-      const response = await fetch(`${API}/api/transactions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...draft,
-          amount: Number(draft.amount),
-          source_text: draft.source_text || text
-        })
-      });
-
-      const data = await readResponse(response);
-
-      if (!response.ok) {
-        throw new Error(
-          typeof data.detail === 'string'
-            ? data.detail
-            : 'Saving the transaction failed.'
-        );
-      }
-
-      setNotice(`Saved successfully. Transaction ID: ${data.id}`);
+      await api("/api/transactions", jsonOptions({
+        amount: Number(item.amount),
+        currency: "INR",
+        transaction_date: item.transaction_date,
+        merchant: item.merchant.trim(),
+        category: item.category || "Other",
+        note: item.note.trim(),
+        source_text: item.source_text || item.note
+      }));
       setDraft(null);
-
-      await load();
-      setPage('ledger');
-    } catch (err) {
-      setError(
-        getErrorMessage(err, 'Could not save the transaction.')
-      );
+      message("Transaction saved to your ledger.");
+      await refresh();
+      setPage("Ledger");
+    } catch (e) {
+      setError(e.message);
     } finally {
-      setSaving(false);
+      setLoading(false);
     }
   }
 
-  const maxCategory = Math.max(
-    1,
-    ...summary.by_category.map(item => Number(item.amount) || 0)
-  );
+  async function uploadReceipt(file) {
+    if (!file) return;
+    setReceiptFileName(file.name);
+    setError("");
+
+    try {
+      if (file.type === "text/plain" || file.name.endsWith(".txt")) {
+        setReceiptText(await file.text());
+        message("Receipt text loaded. Click Extract receipt.");
+        return;
+      }
+
+      if (file.type === "application/pdf" || file.name.endsWith(".pdf")) {
+        const form = new FormData();
+        form.append("file", file);
+        const result = await api("/api/receipts/extract", {
+          method: "POST", body: form
+        });
+        setDraft({
+          ...result,
+          amount: result.amount ?? "",
+          transaction_date: result.transaction_date ?? today,
+          merchant: result.merchant ?? "",
+          note: result.note || `Receipt: ${file.name}`,
+          source_text: `Receipt file: ${file.name}`
+        });
+        message("Receipt draft created. Review before saving.");
+        return;
+      }
+
+      if (file.type.startsWith("image/")) {
+        setError("Image OCR is not configured yet. Use a text-based PDF or TXT receipt.");
+        return;
+      }
+
+      setError("Use a TXT file or a text-based PDF.");
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
+  async function extractPastedReceipt() {
+    if (!receiptText.trim()) {
+      setError("Paste the receipt text or upload a TXT file first.");
+      return;
+    }
+    setExpenseText(`Receipt: ${receiptText.trim()}`);
+    await captureExpense(`Extract the transaction from this receipt: ${receiptText.trim()}`);
+  }
+
+  async function classifyNotes() {
+    setLoading(true);
+    setError("");
+    try {
+      const result = await api(
+        "/api/notes/classify",
+        jsonOptions({ notes })
+      );
+      setNoteDrafts((result.transactions || []).map(item => ({
+        ...item,
+        amount: item.amount ?? "",
+        transaction_date: item.transaction_date ?? today,
+        merchant: item.merchant ?? "",
+        note: item.note || "",
+        source_text: item.source_text || notes
+      })));
+      setUnclassified(result.unclassified_notes || []);
+      message("Drafts are ready. Review and save each transaction separately.");
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function saveNoteDraft(item, index) {
+    await saveTransaction(item);
+    // Remove only after successful save; refresh to verify persistence.
+    if (!error) {
+      setNoteDrafts(old => old.filter((_, i) => i !== index));
+    }
+  }
+
+  async function planGoal() {
+    setLoading(true);
+    setError("");
+    try {
+      const result = await api(
+        "/api/goals/plan",
+        jsonOptions({ text: goalText })
+      );
+      setGoalDraft(result);
+      message("Goal plan generated. Review assumptions and milestones.");
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function saveGoal(item) {
+    if (!item) return;
+    if (!window.confirm(`Save goal "${item.name}" for ${money(item.target_amount)}?`)) return;
+
+    try {
+      await api("/api/goals", jsonOptions({
+        name: item.name,
+        target_amount: Number(item.target_amount),
+        current_amount: Number(item.current_amount || 0),
+        target_date: item.target_date
+      }));
+      setGoalDraft(null);
+      await refreshExtras();
+      message("Savings goal saved.");
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
+  async function createManualGoal(event) {
+    event.preventDefault();
+    await saveGoal(manualGoal);
+    setManualGoal({
+      name: "", target_amount: "", current_amount: "0", target_date: ""
+    });
+  }
+
+  async function saveBudget(event) {
+    event.preventDefault();
+    try {
+      await api("/api/budgets", jsonOptions({
+        category: budgetCategory,
+        monthly_limit: Number(budgetAmount)
+      }));
+      await refreshExtras();
+      message("Budget limit saved.");
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
+  async function generateInsights() {
+    setLoading(true);
+    setError("");
+    try {
+      const result = await api(
+        "/api/insights/monthly",
+        jsonOptions({ month: insightMonth })
+      );
+      setInsights(result);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const pageDescriptions = {
+    "Overview": "Your finances, in focus.",
+    "Expense capture": "Speak or type an expense, then verify the extracted details.",
+    "Receipts": "Extract transaction details from receipt text or supported PDFs.",
+    "Classify notes": "Convert spending notes into drafts that you approve individually.",
+    "Savings goals": "Turn savings intentions into targets and milestones.",
+    "Budgets": "Set category limits and compare them with recorded spending.",
+    "Monthly insights": "Review monthly spending patterns and suggested actions.",
+    "Ledger": "All confirmed transactions in one place."
+  };
 
   return (
-    <div className="app">
-      <aside className="sidebar">
+    <div className="app-shell">
+      <aside className={`sidebar ${mobileMenu ? "open" : ""}`}>
         <div className="brand">
-          <div className="brand-icon">
-            <Wallet size={22} />
-          </div>
-          <div>
-            <b>FinPilot</b>
-            <small>PERSONAL FINANCE AI</small>
-          </div>
+          <span className="brand-icon"><Wallet size={22} /></span>
+          <span>FinPilot<span className="brand-dot">.</span><small>PERSONAL FINANCE AI</small></span>
+          <button className="icon-button mobile-close" onClick={() => setMobileMenu(false)}><X /></button>
         </div>
 
-        <div className="navlabel">WORKSPACE</div>
+        <div className="side-label">WORKSPACE</div>
+        <nav>
+          {nav.map(([name, Icon]) => (
+            <button
+              key={name}
+              className={`nav-item ${page === name ? "active" : ""}`}
+              onClick={() => { setPage(name); setMobileMenu(false); }}
+            >
+              <Icon size={18} /><span>{name}</span>
+            </button>
+          ))}
+        </nav>
 
-        <button
-          className={page === 'overview' ? 'nav active' : 'nav'}
-          onClick={() => setPage('overview')}
-        >
-          <LayoutDashboard size={17} /> Overview
-        </button>
-
-        <button
-          className={page === 'ledger' ? 'nav active' : 'nav'}
-          onClick={() => setPage('ledger')}
-        >
-          <ListOrdered size={17} /> Transaction ledger
-        </button>
-
-        <div className="sidebottom">
-          <ShieldCheck size={17} />
-          <span>
-            Privacy-first workflow
-            <small>Review before saving</small>
-          </span>
+        <div className="sidebar-bottom">
+          <span className={`status-dot ${backendOK ? "online" : ""}`} />
+          <span>{backendOK ? "Backend connected" : "Backend not connected"}</span>
         </div>
       </aside>
 
-      <main className="main">
-        <header>
-          <div>
-            <div className="eyebrow">YOUR MONEY, MADE CLEAR</div>
-            <h1>
-              {page === 'overview'
-                ? 'Financial overview'
-                : 'Transaction ledger'}
-            </h1>
-            <p className="muted">
-              Understand spending. Capture expenses. Make intentional decisions.
-            </p>
-          </div>
-
-          <div className={health ? 'status' : 'status offline'}>
-            <span /> {health ? 'API connected' : 'API unavailable'}
-          </div>
+      <main className="main-area">
+        <header className="topbar">
+          <button className="icon-button mobile-menu" onClick={() => setMobileMenu(true)}><Menu /></button>
+          <div className="breadcrumb">Workspace <span>/</span> {page}</div>
+          <button className="secondary-button" onClick={() => { refresh(); refreshExtras(); }}>
+            <RefreshCw size={15} /> Refresh data
+          </button>
         </header>
 
-        {error && (
-          <div className="alert error">
-            <AlertTriangle size={18} />
-            <span>{error}</span>
-            <button onClick={() => setError('')}>Dismiss</button>
+        <section className="page-content">
+          <div className="page-heading">
+            <div>
+              <div className="eyebrow">FINPILOT INTELLIGENCE</div>
+              <h1>{page}</h1>
+              <p>{pageDescriptions[page]}</p>
+            </div>
+            <div className="date-chip">{today}</div>
           </div>
-        )}
 
-        {notice && (
-          <div className="alert success">
-            <CircleCheck size={18} />
-            <span>{notice}</span>
-            <button onClick={() => setNotice('')}>Dismiss</button>
-          </div>
-        )}
+          {error && <div className="alert error"><AlertTriangle size={17} />{error}</div>}
+          {notice && <div className="alert success"><Check size={17} />{notice}<button onClick={() => setNotice("")}>Dismiss</button></div>}
 
-        {page === 'overview' ? (
-          <>
-            <section className="stats">
-              <div className="stat">
-                <span>Total recorded spending</span>
-                <strong>{money(summary.total_spent)}</strong>
-                <small>Across saved transactions</small>
-                <div className="staticon">
-                  <Wallet size={18} />
-                </div>
-              </div>
-
-              <div className="stat">
-                <span>Transactions</span>
-                <strong>{summary.transaction_count}</strong>
-                <small>Saved to your ledger</small>
-                <div className="staticon blue">
-                  <ReceiptText size={18} />
-                </div>
-              </div>
-
-              <div className="stat">
-                <span>Categories used</span>
-                <strong>{summary.by_category.length}</strong>
-                <small>Based on recorded data</small>
-                <div className="staticon violet">
-                  <ListOrdered size={18} />
-                </div>
-              </div>
-            </section>
-
-            <section className="workgrid">
-              <div className="panel composer">
-                <div className="panelhead">
-                  <div className="roundicon">
-                    <Sparkles size={19} />
-                  </div>
-                  <div>
-                    <h2>AI expense capture</h2>
-                    <p>Describe a purchase naturally. AI prepares a draft.</p>
-                  </div>
-                  <span className="pill">GROQ AI</span>
-                </div>
-
-                <form onSubmit={extract}>
-                  <label htmlFor="expense">What did you spend?</label>
-                  <textarea
-                    id="expense"
-                    value={text}
-                    onChange={event => setText(event.target.value)}
-                    placeholder="Example: I paid ₹480 for groceries at Reliance Fresh yesterday."
-                    rows="4"
-                  />
-                  <div className="hint">
-                    Tip: include the amount, merchant and date if you know them.
-                  </div>
-
-                  <button className="primary" disabled={busy}>
-                    {busy ? (
-                      <RefreshCw className="spin" size={17} />
-                    ) : (
-                      <Sparkles size={17} />
-                    )}
-                    {busy ? 'Extracting details…' : 'Extract transaction'}
-                  </button>
-                </form>
-
-                {draft && (
-                  <div className="draft">
-                    <div className="drafttitle">
-                      <div>
-                        <h3>Review extracted draft</h3>
-                        <p>AI output is not saved until you confirm.</p>
-                      </div>
-                      <span className="reviewpill">REVIEW REQUIRED</span>
-                    </div>
-
-                    {draft.missing_fields?.length > 0 && (
-                      <div className="alert warning">
-                        <AlertTriangle size={17} />
-                        <span>
-                          Missing fields flagged: {draft.missing_fields.join(', ')}.
-                          Fill them in; don't guess.
-                        </span>
-                      </div>
-                    )}
-
-                    <div className="fields">
-                      <div>
-                        <label>Amount (₹) *</label>
-                        <input
-                          type="number"
-                          min="0.01"
-                          step="0.01"
-                          value={draft.amount}
-                          onChange={event =>
-                            update('amount', event.target.value)
-                          }
-                          placeholder="Required"
-                        />
-                      </div>
-
-                      <div>
-                        <label>Date *</label>
-                        <input
-                          type="date"
-                          value={draft.transaction_date || ''}
-                          onChange={event =>
-                            update('transaction_date', event.target.value)
-                          }
-                        />
-                      </div>
-
-                      <div>
-                        <label>Merchant *</label>
-                        <input
-                          value={draft.merchant || ''}
-                          onChange={event =>
-                            update('merchant', event.target.value)
-                          }
-                          placeholder="Merchant name"
-                        />
-                      </div>
-
-                      <div>
-                        <label>Category</label>
-                        <select
-                          value={draft.category || 'Other'}
-                          onChange={event =>
-                            update('category', event.target.value)
-                          }
-                        >
-                          {categories.map(category => (
-                            <option key={category} value={category}>
-                              {category}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="full">
-                        <label>Note *</label>
-                        <input
-                          value={draft.note || ''}
-                          onChange={event => update('note', event.target.value)}
-                          placeholder="Short description"
-                        />
-                      </div>
-                    </div>
-
-                    <button
-                      className="primary save"
-                      onClick={save}
-                      disabled={saving}
-                    >
-                      {saving
-                        ? 'Saving…'
-                        : (
-                          <>
-                            <CircleCheck size={17} /> Confirm & save transaction
-                          </>
-                        )}
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              <div className="panel insights">
-                <div className="panelhead">
-                  <div className="roundicon bluebg">
-                    <ArrowUpRight size={19} />
-                  </div>
-                  <div>
-                    <h2>Spending by category</h2>
-                    <p>Calculated from saved ledger entries</p>
-                  </div>
-                </div>
-
-                {summary.by_category.length === 0 ? (
-                  <div className="empty">
-                    <div className="emptyicon">
-                      <ReceiptText size={22} />
-                    </div>
-                    <b>No spending data yet</b>
-                    <p>
-                      Your category totals will appear after you save a transaction.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="bars">
-                    {summary.by_category
-                      .slice()
-                      .sort((a, b) => b.amount - a.amount)
-                      .map(item => (
-                        <div className="barrow" key={item.category}>
-                          <div className="barlabel">
-                            <span>{item.category}</span>
-                            <b>{money(item.amount)}</b>
-                          </div>
-                          <div className="track">
-                            <div
-                              className="fill"
-                              style={{
-                                width: `${Math.max(
-                                  2,
-                                  (Number(item.amount) || 0) /
-                                    maxCategory *
-                                    100
-                                )}%`
-                              }}
-                            />
-                          </div>
-                        </div>
-                      ))}
-                  </div>
-                )}
-
-                <div className="secure-note">
-                  <ShieldCheck size={16} />
-                  <span>
-                    Totals are based on database records, not AI estimates.
-                  </span>
-                </div>
-              </div>
-            </section>
-
-            <section className="panel recent">
-              <div className="sectionhead">
+          {page === "Overview" && (
+            <>
+              <div className="hero">
                 <div>
-                  <h2>Recent transactions</h2>
-                  <p>Your latest saved expenses</p>
+                  <span className="hero-tag"><Sparkles size={14} /> YOUR FINANCIAL COPILOT</span>
+                  <h2>Make every rupee<br />more intentional.</h2>
+                  <p>Capture expenses, build savings habits, and understand your spending — with you in control.</p>
+                  <button className="primary-button" onClick={() => setPage("Expense capture")}>Capture an expense <Sparkles size={16} /></button>
                 </div>
-                <button
-                  className="textbtn"
-                  onClick={() => setPage('ledger')}
-                >
-                  View ledger <ArrowUpRight size={15} />
+                <div className="hero-art"><Wallet size={78} strokeWidth={1.1} /><span>₹</span></div>
+              </div>
+
+              <div className="metrics-grid">
+                <Metric label="Recorded spending" value={money(summary.total_spent)} foot="All saved transactions" icon={Wallet} />
+                <Metric label="Transactions" value={summary.transaction_count} foot="Confirmed ledger entries" icon={ReceiptText} />
+                <Metric label="Savings goals" value={goals.length} foot="Goals you have saved" icon={Target} />
+              </div>
+
+              <div className="two-columns">
+                <section className="panel">
+                  <PanelTitle title="Spending by category" subtitle="Based on your recorded transactions" />
+                  {summary.by_category.length ? summary.by_category.map(item => (
+                    <div className="category-row" key={item.category}>
+                      <div className="row-between"><span>{item.category}</span><b>{money(item.amount)}</b></div>
+                      <div className="progress-track"><div className="progress-fill" style={{ width: `${Math.min(100, item.amount / Math.max(1, summary.total_spent) * 100)}%` }} /></div>
+                    </div>
+                  )) : <Empty text="Your category breakdown will appear after you save transactions." />}
+                </section>
+                <section className="panel">
+                  <PanelTitle title="Recent transactions" subtitle="Your latest confirmed expenses" />
+                  <Ledger rows={transactions.slice(0, 5)} />
+                  <button className="text-button" onClick={() => setPage("Ledger")}>View full ledger →</button>
+                </section>
+              </div>
+            </>
+          )}
+
+          {page === "Expense capture" && (
+            <section className="panel narrow-panel">
+              <PanelTitle title="Describe your expense" subtitle="Natural language in, editable transaction draft out." />
+              <label className="field-label">Expense description</label>
+              <textarea rows="4" value={expenseText} onChange={e => setExpenseText(e.target.value)} placeholder="For example: I spent 180 rupees on an auto yesterday." />
+              <div className="button-row">
+                <button className="secondary-button" onClick={startVoice}><Mic size={16} /> Speak expense</button>
+                <button className="primary-button" disabled={loading} onClick={() => captureExpense()}>
+                  {loading ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />} Extract details
                 </button>
               </div>
-              {loading ? (
-                <p className="muted">Loading transactions…</p>
-              ) : (
-                <Ledger rows={rows.slice(0, 5)} />
-              )}
+              {draft && <Draft draft={draft} update={updateDraft} save={() => saveTransaction(draft)} loading={loading} />}
             </section>
-          </>
-        ) : (
-          <section className="panel recent">
-            <div className="sectionhead">
-              <div>
-                <h2>All transactions</h2>
-                <p>{rows.length} records saved in the database</p>
-              </div>
-              <button className="secondary" onClick={load} disabled={loading}>
-                <RefreshCw size={15} /> {loading ? 'Refreshing…' : 'Refresh'}
-              </button>
-            </div>
-            {loading ? (
-              <p className="muted">Loading transactions…</p>
-            ) : (
-              <Ledger rows={rows} />
-            )}
-          </section>
-        )}
+          )}
 
-        <footer>
-          FinPilot · AI-assisted recordkeeping · Always review AI-generated details before saving.
-        </footer>
+          {page === "Receipts" && (
+            <section className="panel narrow-panel">
+              <PanelTitle title="Receipt extraction" subtitle="Upload a text-based PDF or TXT, or paste receipt text." />
+              <label className="upload-box">
+                <ReceiptText size={28} />
+                <b>Choose receipt file</b>
+                <span>TXT or text-based PDF · Maximum 10 MB</span>
+                <input type="file" accept=".txt,.pdf,image/*" onChange={e => uploadReceipt(e.target.files?.[0])} />
+              </label>
+              {receiptFileName && <p className="muted">Selected: {receiptFileName}</p>}
+              <label className="field-label">Receipt text</label>
+              <textarea rows="6" value={receiptText} onChange={e => setReceiptText(e.target.value)} placeholder={"Merchant: Example Store\nDate: 2026-10-28\nTotal: ₹450"} />
+              <button className="primary-button" onClick={extractPastedReceipt} disabled={loading}>
+                <Sparkles size={16} /> Extract receipt details
+              </button>
+              {draft && <Draft draft={draft} update={updateDraft} save={() => saveTransaction(draft)} loading={loading} />}
+              <p className="muted">Scanned PDFs and images need an OCR provider, which is not configured in this version.</p>
+            </section>
+          )}
+
+          {page === "Classify notes" && (
+            <section className="panel">
+              <PanelTitle title="Classify spending notes" subtitle="AI creates drafts; each transaction needs your confirmation." />
+              <textarea rows="5" value={notes} onChange={e => setNotes(e.target.value)} placeholder={"Lunch 250 today at cafe\nBus ticket 80 yesterday\nGroceries 600 at local store"} />
+              <button className="primary-button" disabled={loading || !notes.trim()} onClick={classifyNotes}>
+                <Sparkles size={16} /> Classify notes
+              </button>
+              {noteDrafts.map((item, index) => (
+                <div className="draft-card" key={`${item.source_text}-${index}`}>
+                  <div className="row-between"><b>Draft {index + 1}</b><span className="status-pill">REVIEW REQUIRED</span></div>
+                  <TransactionFields item={item} onChange={(key, value) => setNoteDrafts(old => old.map((d, i) => i === index ? { ...d, [key]: value } : d))} />
+                  <button className="primary-button" onClick={() => saveNoteDraft(item, index)}><Check size={16} /> Confirm & save</button>
+                  <button className="text-button" onClick={() => setNoteDrafts(old => old.filter((_, i) => i !== index))}>Discard draft</button>
+                </div>
+              ))}
+              {unclassified.length > 0 && <div className="alert warning"><AlertTriangle size={16} /><div><b>Not converted</b>{unclassified.map((item, i) => <p key={i}>{item}</p>)}</div></div>}
+            </section>
+          )}
+
+          {page === "Savings goals" && (
+            <div className="two-columns">
+              <section className="panel">
+                <PanelTitle title="Plan a savings goal" subtitle="Describe the target in your own words." />
+                <textarea rows="4" value={goalText} onChange={e => setGoalText(e.target.value)} />
+                <button className="primary-button" disabled={loading} onClick={planGoal}><Sparkles size={16} /> Generate plan</button>
+                {goalDraft && <div className="draft-card">
+                  <span className="status-pill">PROPOSED PLAN</span>
+                  <h2>{goalDraft.name}</h2>
+                  <div className="goal-amount">{money(goalDraft.target_amount)}</div>
+                  <p>{goalDraft.rationale}</p>
+                  <p>Target date: <b>{goalDraft.target_date}</b></p>
+                  <h3>Milestones</h3>
+                  {(goalDraft.milestones || []).map((m, i) => <div className="milestone" key={i}><b>{m.title}</b><span>{m.due_date} · {money(m.target_amount)}</span></div>)}
+                  <button className="primary-button" onClick={() => saveGoal(goalDraft)}><Check size={16} /> Confirm & save goal</button>
+                </div>}
+              </section>
+
+              <section className="panel">
+                <PanelTitle title="Create a goal manually" subtitle="Set the details yourself." />
+                <form className="stack-form" onSubmit={createManualGoal}>
+                  <label>Goal name<input required value={manualGoal.name} onChange={e => setManualGoal({ ...manualGoal, name: e.target.value })} /></label>
+                  <label>Target amount (₹)<input required type="number" min="1" value={manualGoal.target_amount} onChange={e => setManualGoal({ ...manualGoal, target_amount: e.target.value })} /></label>
+                  <label>Already saved (₹)<input type="number" min="0" value={manualGoal.current_amount} onChange={e => setManualGoal({ ...manualGoal, current_amount: e.target.value })} /></label>
+                  <label>Target date<input required type="date" min={today} value={manualGoal.target_date} onChange={e => setManualGoal({ ...manualGoal, target_date: e.target.value })} /></label>
+                  <button className="primary-button"><Plus size={16} /> Save goal</button>
+                </form>
+              </section>
+
+              <section className="panel full-span">
+                <PanelTitle title="Saved goals" subtitle="Progress based on the amounts you entered." />
+                {goals.length ? goals.map(goal => {
+                  const pct = Math.min(100, goal.current_amount / goal.target_amount * 100);
+                  return <div className="goal-row" key={goal.id}>
+                    <div className="row-between"><b>{goal.name}</b><b>{Math.round(pct)}%</b></div>
+                    <div className="progress-track"><div className="progress-fill" style={{ width: `${pct}%` }} /></div>
+                    <p>{money(goal.current_amount)} of {money(goal.target_amount)} · Due {goal.target_date}</p>
+                  </div>;
+                }) : <Empty text="Your saved goals will appear here." />}
+              </section>
+            </div>
+          )}
+
+          {page === "Budgets" && (
+            <div className="two-columns">
+              <section className="panel">
+                <PanelTitle title="Set a category budget" subtitle="Budget changes are made only when you submit this form." />
+                <form className="stack-form" onSubmit={saveBudget}>
+                  <label>Category<select value={budgetCategory} onChange={e => setBudgetCategory(e.target.value)}>{categories.map(c => <option key={c}>{c}</option>)}</select></label>
+                  <label>Monthly limit (₹)<input required type="number" min="1" value={budgetAmount} onChange={e => setBudgetAmount(e.target.value)} /></label>
+                  <button className="primary-button"><Plus size={16} /> Save budget</button>
+                </form>
+              </section>
+              <section className="panel">
+                <PanelTitle title="Monthly budget status" subtitle="Compared with the spending summary available from your ledger." />
+                {budgets.length ? budgets.map(budget => {
+                  const spent = summary.by_category.find(x => x.category === budget.category)?.amount || 0;
+                  const pct = spent / budget.monthly_limit * 100;
+                  return <div className="category-row" key={budget.category}>
+                    <div className="row-between"><span>{budget.category}</span><b>{money(spent)} / {money(budget.monthly_limit)}</b></div>
+                    <div className="progress-track"><div className={`progress-fill ${pct > 100 ? "over" : ""}`} style={{ width: `${Math.min(100, pct)}%` }} /></div>
+                    <small>{pct > 100 ? "Over limit" : `${Math.round(pct)}% of limit`}</small>
+                  </div>;
+                }) : <Empty text="Set your first budget to see a comparison." />}
+              </section>
+            </div>
+          )}
+
+          {page === "Monthly insights" && (
+            <section className="panel">
+              <PanelTitle title="Monthly financial review" subtitle="AI-generated suggestions based on your confirmed transactions." />
+              <div className="inline-form">
+                <label>Month<input type="month" value={insightMonth} onChange={e => setInsightMonth(e.target.value)} /></label>
+                <button className="primary-button" disabled={loading} onClick={generateInsights}><Sparkles size={16} /> Generate insights</button>
+              </div>
+              {insights && <>
+                <div className="insight-summary"><span className="eyebrow">MONTHLY SUMMARY</span><h2>{money(insights.total_spent)}</h2><p>{insights.summary}</p><small>{insights.transaction_count} recorded transactions</small></div>
+                <div className="two-columns">
+                  <div><h3>Patterns noticed</h3><ul>{(insights.patterns || []).map((x, i) => <li key={i}>{x}</li>)}</ul></div>
+                  <div><h3>Suggested actions</h3><ul>{(insights.action_items || []).map((x, i) => <li key={i}>{x}</li>)}</ul></div>
+                </div>
+                <p className="muted">Suggestions are informational. They do not modify your records or budgets.</p>
+              </>}
+            </section>
+          )}
+
+          {page === "Ledger" && (
+            <section className="panel">
+              <div className="row-between"><PanelTitle title="Transaction ledger" subtitle={`${transactions.length} saved records`} /><button className="secondary-button" onClick={refresh}><RefreshCw size={15} /> Refresh</button></div>
+              <Ledger rows={transactions} />
+            </section>
+          )}
+
+          <footer>FinPilot · AI-assisted recordkeeping · You approve consequential changes.</footer>
+        </section>
       </main>
     </div>
   );
 }
 
-function Ledger({ rows }) {
-  if (!rows.length) {
-    return (
-      <div className="empty">
-        <div className="emptyicon">
-          <ReceiptText size={22} />
-        </div>
-        <b>No transactions yet</b>
-        <p>
-          Extract an expense and confirm it to create your first ledger entry.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="tablewrap">
-      <table>
-        <thead>
-          <tr>
-            <th>MERCHANT / NOTE</th>
-            <th>CATEGORY</th>
-            <th>DATE</th>
-            <th className="right">AMOUNT</th>
-            <th>STATUS</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(row => (
-            <tr key={row.id}>
-              <td>
-                <b>{row.merchant}</b>
-                <small>{row.note}</small>
-              </td>
-              <td>
-                <span className="cat">{row.category}</span>
-              </td>
-              <td>{row.transaction_date}</td>
-              <td className="right amount">{money(row.amount)}</td>
-              <td>
-                <span className="saved">
-                  <CircleCheck size={13} /> Saved
-                </span>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+function Metric({ label, value, foot, icon: Icon }) {
+  return <div className="metric-card"><div className="row-between"><span>{label}</span><Icon size={19} /></div><h2>{value}</h2><small>{foot}</small></div>;
 }
 
-createRoot(document.getElementById('root')).render(<App />);
+function PanelTitle({ title, subtitle }) {
+  return <div className="panel-title"><div><h2>{title}</h2><p>{subtitle}</p></div></div>;
+}
+
+function Empty({ text }) {
+  return <div className="empty-state"><ReceiptText size={24} /><p>{text}</p></div>;
+}
+
+function TransactionFields({ item, onChange }) {
+  return <div className="form-grid">
+    <label>Amount (₹)<input type="number" min="0.01" step="0.01" value={item.amount} onChange={e => onChange("amount", e.target.value)} /></label>
+    <label>Date<input type="date" value={item.transaction_date || ""} onChange={e => onChange("transaction_date", e.target.value)} /></label>
+    <label>Merchant<input value={item.merchant || ""} onChange={e => onChange("merchant", e.target.value)} /></label>
+    <label>Category<select value={item.category || "Other"} onChange={e => onChange("category", e.target.value)}>{categories.map(c => <option key={c}>{c}</option>)}</select></label>
+    <label className="wide-field">Note<input value={item.note || ""} onChange={e => onChange("note", e.target.value)} /></label>
+  </div>;
+}
+
+function Draft({ draft, update, save, loading }) {
+  return <div className="draft-card">
+    <div className="row-between"><b>Review extracted transaction</b><span className="status-pill">NOT SAVED</span></div>
+    {draft.missing_fields?.length > 0 && <div className="alert warning">Please check missing fields: {draft.missing_fields.join(", ")}</div>}
+    <TransactionFields item={draft} onChange={update} />
+    <button className="primary-button" disabled={loading} onClick={save}><Check size={16} /> Confirm & save transaction</button>
+  </div>;
+}
+
+function Ledger({ rows }) {
+  if (!rows.length) return <Empty text="No transactions yet. Confirm an expense draft to populate your ledger." />;
+  return <div className="table-wrap"><table>
+    <thead><tr><th>Merchant / note</th><th>Category</th><th>Date</th><th className="right">Amount</th></tr></thead>
+    <tbody>{rows.map(row => <tr key={row.id}>
+      <td><b>{row.merchant}</b><small>{row.note}</small></td>
+      <td><span className="category-tag">{row.category}</span></td>
+      <td>{row.transaction_date}</td>
+      <td className="right amount">{money(row.amount)}</td>
+    </tr>)}</tbody>
+  </table></div>;
+}
+
+createRoot(document.getElementById("root")).render(<App />);
