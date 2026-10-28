@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # FinPilot — Personal Finance Intelligence
 
 FinPilot demonstrates the required flow:
@@ -92,3 +93,6 @@ After deployment:
 - Add authentication and per-user data isolation before storing real personal financial data.
 - For receipt uploads, implement OCR/document parsing and treat the extracted result as a draft requiring review.
 - For savings goals and monthly recommendations, add separate schemas and endpoints. Never execute consequential changes based only on an AI summary.
+=======
+# FinPilot-Personal-Finance-Intelligence
+>>>>>>> dbe106140910960fcc1f41e0a3ed2ec0351ff9cc
