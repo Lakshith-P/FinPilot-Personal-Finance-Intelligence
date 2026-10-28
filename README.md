@@ -1,98 +1,270 @@
-<<<<<<< HEAD
 # FinPilot — Personal Finance Intelligence
 
-FinPilot demonstrates the required flow:
+<p align="center">
+  <strong>AI-powered expense tracking and personal finance insights.</strong>
+</p>
 
-**User input → AI extraction → schema-guided output → validation → backend API → database create → frontend confirmation**
+<p align="center">
+  <img src="https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white" alt="React">
+  <img src="https://img.shields.io/badge/FastAPI-Python-009688?logo=fastapi&logoColor=white" alt="FastAPI">
+  <img src="https://img.shields.io/badge/AI-Groq-orange" alt="Groq AI">
+  <img src="https://img.shields.io/badge/Database-SQLite-003B57?logo=sqlite&logoColor=white" alt="SQLite">
+  <img src="https://img.shields.io/badge/Frontend-Vite-646CFF?logo=vite&logoColor=white" alt="Vite">
+</p>
 
-## Features included
-- Natural-language expense capture with Mistral AI.
-- Pydantic schema validation and explicit missing-field flags.
-- Editable draft preview; user confirmation is required before database writes.
-- FastAPI endpoints for extraction, create, ledger, summary, and health.
-- SQLAlchemy database layer: SQLite locally, PostgreSQL supported for deployment.
-- Frontend dashboard, category totals, recent transactions, ledger, and request/error states.
-- Basic validation/error handling for blank input, missing required values, malformed AI output, unavailable API key, failed requests, and database/API failures.
+FinPilot is a personal finance application that uses AI to turn natural-language expense descriptions into structured transaction drafts. Users can review and edit the extracted details before confirming and saving them to their transaction ledger.
 
-## Requirements
-- Python 3.10+
-- Node.js 18+
-- Mistral API key
+## Table of Contents
 
-## Run locally
+- [Overview](#overview)
+- [Features](#features)
+- [Technology Stack](#technology-stack)
+- [Architecture](#architecture)
+- [Getting Started](#getting-started)
+- [Environment Configuration](#environment-configuration)
+- [API Endpoints](#api-endpoints)
+- [Project Structure](#project-structure)
+- [Security](#security)
+- [Future Improvements](#future-improvements)
 
-### 1. Start the backend
+## Overview
+
+Tracking everyday expenses manually can be time-consuming. FinPilot provides an AI-assisted workflow for capturing expenses, organizing transactions into categories, and viewing spending summaries.
+
+For example, a user can enter:
+
+> Spent ₹250 on lunch at Cafe Niloufer today.
+
+The AI extracts transaction details and prepares a draft for the user to review. The transaction is saved only after the user confirms it.
+
+## Features
+
+### AI-Powered Expense Capture
+- Accept expense descriptions in natural language.
+- Extract amount, merchant, date, category, and note.
+- Use Groq AI with the `openai/gpt-oss-20b` model.
+- Flag missing information for user review.
+
+### Review Before Saving
+- Review extracted transaction details.
+- Edit the amount, date, merchant, category, and note.
+- Confirm the transaction before saving it.
+
+### Transaction Ledger
+- Store confirmed transactions in a database.
+- View saved transactions and their details.
+- Retrieve recent transactions through the API.
+
+### Spending Summary
+- Calculate total recorded spending.
+- Count saved transactions.
+- Group spending by category.
+- Visualize category totals in the dashboard.
+
+### Backend API
+- FastAPI endpoints for extraction and transaction management.
+- Pydantic request validation.
+- CORS configuration for local frontend development.
+- SQLite database support for local development.
+
+## Technology Stack
+
+| Component | Technology |
+|---|---|
+| Frontend | React |
+| Frontend tooling | Vite |
+| UI icons | Lucide React |
+| Backend | Python, FastAPI |
+| AI provider | Groq API |
+| AI model | `openai/gpt-oss-20b` |
+| Database | SQLite |
+| ORM | SQLAlchemy |
+| Validation | Pydantic |
+| Configuration | Python dotenv |
+
+## Architecture
+
+```text
+User
+  |
+  v
+React + Vite Frontend
+  |
+  | HTTP / JSON
+  v
+FastAPI Backend
+  |
+  +----------------------+
+  |                      |
+  v                      v
+Groq AI API           SQLite Database
+  |
+  v
+Structured Expense Draft
+  |
+  v
+User Reviews and Confirms
+  |
+  v
+FastAPI Saves Transaction
+  |
+  v
+Updated Ledger and Summary
+```
+
+## Getting Started
+
+### Prerequisites
+
+Install the following:
+
+- Python 3.10 or newer
+- Node.js and npm
+- Git
+- A Groq API key
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/Lakshith-P/FinPilot-Personal-Finance-Intelligence.git
+cd FinPilot-Personal-Finance-Intelligence
+```
+
+### 2. Configure the Backend
+
 ```bash
 cd backend
 python -m venv .venv
-# Windows PowerShell:
-.venv\\Scripts\\Activate.ps1
-# macOS/Linux:
-# source .venv/bin/activate
-pip install -r requirements.txt
-copy .env.example .env
 ```
-Edit `backend/.env` and set `MISTRAL_API_KEY`. Keep this secret in the backend only; never add it to frontend environment variables or commit it to Git.
+
+On Windows PowerShell:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+Install dependencies:
 
 ```bash
-uvicorn main:app --reload --port 8000
+python -m pip install -r requirements.txt
 ```
-Backend API docs: http://localhost:8000/docs
 
-### 2. Start the frontend in a second terminal
+Create a `.env` file inside the `backend` folder.
+
+### 3. Configure Environment Variables
+
+Add the following to `backend/.env`:
+
+```env
+GROQ_API_KEY=your_groq_api_key_here
+GROQ_MODEL=openai/gpt-oss-20b
+DATABASE_URL=sqlite:///./finpilot.db
+CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+```
+
+Get an API key from [Groq Console](https://console.groq.com/keys).
+
+Do not commit your actual `.env` file or API key to GitHub.
+
+### 4. Start the Backend
+
+From the `backend` directory, run:
+
+```bash
+python -m uvicorn main:app --reload --port 8000
+```
+
+The API will be available at:
+
+- API base: `http://localhost:8000`
+- Interactive API documentation: `http://localhost:8000/docs`
+- Health check: `http://localhost:8000/api/health`
+
+### 5. Start the Frontend
+
+Open a second terminal:
+
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
-Open the local URL printed by Vite, usually http://localhost:5173.
 
-## API endpoints
-- `GET /api/health` — health check
-- `POST /api/transactions/extract` — AI extraction into a validated draft; does not save
-- `POST /api/transactions` — validates and saves a confirmed transaction
-- `GET /api/transactions` — list ledger records
-- `GET /api/summary` — database-derived spending totals
+Open `http://localhost:5173` in your browser.
 
-Example extract request:
-```json
-{"text":"Spent ₹250 on lunch at Cafe Niloufer today"}
+### 6. Try an Expense
+
+Enter an example such as:
+
+```text
+Spent ₹250 on lunch at Cafe Niloufer today
 ```
 
-A missing amount/date/merchant is not silently invented. The draft is shown for correction. The backend's save endpoint validates the required values again.
+Then:
 
-## Deployment (compulsory requirement)
-Deploy the backend and frontend separately, then connect the frontend to the backend. The deployment URLs must be configured with your actual provider URLs; no live deployment can be created without access to your hosting accounts.
+1. Click **Extract transaction**.
+2. Review the AI-generated draft.
+3. Correct any missing or inaccurate details.
+4. Click **Confirm & save transaction**.
+5. Check the transaction ledger and spending summary.
 
-### Backend
-A simple option is Render or Railway:
-- Root directory: `backend`
-- Build/install: `pip install -r requirements.txt`
-- Start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
-- Environment variables: `MISTRAL_API_KEY`, `MISTRAL_MODEL`, `DATABASE_URL`, `CORS_ORIGINS`
-- Use a managed PostgreSQL database for persistent production data. Do not rely on an ephemeral local SQLite filesystem for production.
-- Set `CORS_ORIGINS` to your deployed frontend origin.
+## API Endpoints
 
-### Frontend
-A simple option is Vercel or Netlify:
-- Root directory: `frontend`
-- Build command: `npm run build`
-- Output directory: `dist`
-- Environment variable: `VITE_API_URL=https://YOUR-BACKEND-DOMAIN`
-- Redeploy after setting the environment variable.
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | `/api/health` | Check backend status |
+| POST | `/api/transactions/extract` | Extract an expense draft using AI |
+| POST | `/api/transactions` | Save a confirmed transaction |
+| GET | `/api/transactions` | Retrieve saved transactions |
+| GET | `/api/summary` | Retrieve spending totals and category breakdown |
 
-After deployment:
-1. Open `https://YOUR-BACKEND-DOMAIN/api/health`.
-2. Confirm the deployed frontend shows “API connected”.
-3. Add a test expense, review the draft, and confirm it.
-4. Confirm the saved row and totals appear after refresh.
-5. Test blank input and an incomplete expense such as “I bought something” to demonstrate validation/missing-field handling.
+## Project Structure
 
-## Important limitations / next steps
-- This is a prototype, not a banking application. It does not connect to bank accounts or execute payments.
-- Add authentication and per-user data isolation before storing real personal financial data.
-- For receipt uploads, implement OCR/document parsing and treat the extracted result as a draft requiring review.
-- For savings goals and monthly recommendations, add separate schemas and endpoints. Never execute consequential changes based only on an AI summary.
-=======
-# FinPilot-Personal-Finance-Intelligence
->>>>>>> dbe106140910960fcc1f41e0a3ed2ec0351ff9cc
+```text
+FinPilot-Personal-Finance-Intelligence/
+├── backend/
+│   ├── main.py
+│   ├── requirements.txt
+│   ├── .env.example
+│   └── .env                 # Local only; not committed
+├── frontend/
+│   ├── index.html
+│   ├── package.json
+│   ├── package-lock.json
+│   ├── vite.config.js
+│   └── src/
+│       ├── main.jsx
+│       └── style.css
+├── .gitignore
+└── README.md
+```
+
+## Security
+
+- Keep API keys in environment variables.
+- Never commit `.env` or credentials to a public repository.
+- Validate AI-generated data before saving it.
+- Require user confirmation before persisting extracted transactions.
+- Use appropriate authentication and authorization before deploying for multiple users.
+
+## Future Improvements
+
+- Monthly budgets and budget alerts.
+- Date-range filtering and monthly spending trends.
+- Export transactions to CSV.
+- Recurring expense detection.
+- Search and filter the transaction ledger.
+- User authentication and separate accounts.
+- Deployment with a production database.
+
+## Author
+
+**Lakshith P**
+
+GitHub: [@Lakshith-P](https://github.com/Lakshith-P)
+
+Repository: [FinPilot-Personal-Finance-Intelligence](https://github.com/Lakshith-P/FinPilot-Personal-Finance-Intelligence)
+
+---
+
+*FinPilot is an AI-assisted personal finance project. Always review extracted transaction details for accuracy before saving.*
