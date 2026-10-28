@@ -2,26 +2,69 @@
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
-  Wallet, Sparkles, ArrowUpRight, ReceiptText,
-  CircleCheck, AlertTriangle, RefreshCw,
-  LayoutDashboard, ListOrdered, ShieldCheck
+  Wallet,
+  Sparkles,
+  ArrowUpRight,
+  ReceiptText,
+  CircleCheck,
+  AlertTriangle,
+  RefreshCw,
+  LayoutDashboard,
+  ListOrdered,
+  ShieldCheck
 } from 'lucide-react';
 import './style.css';
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// Render frontend environment variable:
+// VITE_API_URL=https://your-actual-backend.onrender.com
+// Local development falls back to the local FastAPI server.
+const API = (
+  import.meta.env.VITE_API_URL || 'http://localhost:8000'
+).replace(/\/+$/, '');
 
 const categories = [
-  'Food', 'Transport', 'Shopping', 'Bills', 'Health',
-  'Education', 'Entertainment', 'Travel', 'Savings', 'Other'
+  'Food',
+  'Transport',
+  'Shopping',
+  'Bills',
+  'Health',
+  'Education',
+  'Entertainment',
+  'Travel',
+  'Savings',
+  'Other'
 ];
 
-const money = n => new Intl.NumberFormat('en-IN', {
-  style: 'currency',
-  currency: 'INR',
-  maximumFractionDigits: 2
-}).format(n || 0);
+const money = n =>
+  new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 2
+  }).format(n || 0);
 
-const today = new Date().toISOString().slice(0, 10);
+async function readResponse(response) {
+  const contentType = response.headers.get('content-type') || '';
+
+  if (contentType.includes('application/json')) {
+    return response.json();
+  }
+
+  const body = await response.text();
+
+  if (!response.ok) {
+    throw new Error(body || `Request failed (${response.status})`);
+  }
+
+  throw new Error('The backend returned an unexpected response.');
+}
+
+function getErrorMessage(error, fallback) {
+  if (error instanceof TypeError) {
+    return 'Cannot reach the backend. Check the backend URL, service status, and CORS settings.';
+  }
+
+  return error?.message || fallback;
+}
 
 function App() {
   const [page, setPage] = useState('overview');
@@ -38,30 +81,50 @@ function App() {
 
   const [busy, setBusy] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [health, setHealth] = useState(false);
 
   async function load() {
-    try {
-      const [r, s, h] = await Promise.all([
-        fetch(`${API}/api/transactions`),
-        fetch(`${API}/api/summary`),
-        fetch(`${API}/api/health`)
-      ]);
+    setLoading(true);
 
-      if (!r.ok || !s.ok || !h.ok) {
-        throw new Error('Backend request failed');
+    try {
+      const [transactionsResponse, summaryResponse, healthResponse] =
+        await Promise.all([
+          fetch(`${API}/api/transactions`),
+          fetch(`${API}/api/summary`),
+          fetch(`${API}/api/health`)
+        ]);
+
+      if (
+        !transactionsResponse.ok ||
+        !summaryResponse.ok ||
+        !healthResponse.ok
+      ) {
+        throw new Error('A backend request failed. Check the backend logs.');
       }
 
-      setRows(await r.json());
-      setSummary(await s.json());
+      const [transactions, summaryData] = await Promise.all([
+        readResponse(transactionsResponse),
+        readResponse(summaryResponse),
+        readResponse(healthResponse)
+      ]);
+
+      setRows(transactions);
+      setSummary(summaryData);
       setHealth(true);
-    } catch {
+      setError('');
+    } catch (err) {
       setHealth(false);
       setError(
-        'Cannot reach the backend. Start the API server and check VITE_API_URL.'
+        getErrorMessage(
+          err,
+          'Could not load FinPilot data. Check your backend configuration.'
+        )
       );
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -73,8 +136,9 @@ function App() {
     setDraft(current => ({
       ...current,
       [key]: value,
-      missing_fields: (current.missing_fields || [])
-        .filter(field => field !== key)
+      missing_fields: (current.missing_fields || []).filter(
+        field => field !== key
+      )
     }));
   }
 
@@ -92,22 +156,19 @@ function App() {
     setBusy(true);
 
     try {
-      const response = await fetch(
-        `${API}/api/transactions/extract`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text })
-        }
-      );
+      const response = await fetch(`${API}/api/transactions/extract`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
 
-      const data = await response.json();
+      const data = await readResponse(response);
 
       if (!response.ok) {
         throw new Error(
           typeof data.detail === 'string'
             ? data.detail
-            : 'Extraction failed'
+            : 'Expense extraction failed.'
         );
       }
 
@@ -122,7 +183,9 @@ function App() {
 
       setNotice('Draft extracted. Review every field before saving.');
     } catch (err) {
-      setError(err.message || 'Request failed. Please retry.');
+      setError(
+        getErrorMessage(err, 'Expense extraction failed. Please retry.')
+      );
     } finally {
       setBusy(false);
     }
@@ -139,6 +202,7 @@ function App() {
 
     if (
       !draft.amount ||
+      !Number.isFinite(Number(draft.amount)) ||
       Number(draft.amount) <= 0 ||
       !draft.transaction_date ||
       !draft.merchant?.trim() ||
@@ -153,7 +217,7 @@ function App() {
     const confirmed = window.confirm(
       `Save this transaction?\n\n` +
       `${money(Number(draft.amount))} · ${draft.merchant}\n` +
-      `${draft.category} · ${draft.transaction_date}\n\n` +
+      `${draft.category || 'Other'} · ${draft.transaction_date}\n\n` +
       `Only save if these details are correct.`
     );
 
@@ -172,13 +236,13 @@ function App() {
         })
       });
 
-      const data = await response.json();
+      const data = await readResponse(response);
 
       if (!response.ok) {
         throw new Error(
           typeof data.detail === 'string'
             ? data.detail
-            : 'Save failed'
+            : 'Saving the transaction failed.'
         );
       }
 
@@ -188,7 +252,9 @@ function App() {
       await load();
       setPage('ledger');
     } catch (err) {
-      setError(err.message || 'Database request failed.');
+      setError(
+        getErrorMessage(err, 'Could not save the transaction.')
+      );
     } finally {
       setSaving(false);
     }
@@ -196,14 +262,16 @@ function App() {
 
   const maxCategory = Math.max(
     1,
-    ...summary.by_category.map(item => item.amount)
+    ...summary.by_category.map(item => Number(item.amount) || 0)
   );
 
   return (
     <div className="app">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-icon"><Wallet size={22} /></div>
+          <div className="brand-icon">
+            <Wallet size={22} />
+          </div>
           <div>
             <b>FinPilot</b>
             <small>PERSONAL FINANCE AI</small>
@@ -277,7 +345,9 @@ function App() {
                 <span>Total recorded spending</span>
                 <strong>{money(summary.total_spent)}</strong>
                 <small>Across saved transactions</small>
-                <div className="staticon"><Wallet size={18} /></div>
+                <div className="staticon">
+                  <Wallet size={18} />
+                </div>
               </div>
 
               <div className="stat">
@@ -302,7 +372,9 @@ function App() {
             <section className="workgrid">
               <div className="panel composer">
                 <div className="panelhead">
-                  <div className="roundicon"><Sparkles size={19} /></div>
+                  <div className="roundicon">
+                    <Sparkles size={19} />
+                  </div>
                   <div>
                     <h2>AI expense capture</h2>
                     <p>Describe a purchase naturally. AI prepares a draft.</p>
@@ -324,9 +396,11 @@ function App() {
                   </div>
 
                   <button className="primary" disabled={busy}>
-                    {busy
-                      ? <RefreshCw className="spin" size={17} />
-                      : <Sparkles size={17} />}
+                    {busy ? (
+                      <RefreshCw className="spin" size={17} />
+                    ) : (
+                      <Sparkles size={17} />
+                    )}
                     {busy ? 'Extracting details…' : 'Extract transaction'}
                   </button>
                 </form>
@@ -359,7 +433,9 @@ function App() {
                           min="0.01"
                           step="0.01"
                           value={draft.amount}
-                          onChange={event => update('amount', event.target.value)}
+                          onChange={event =>
+                            update('amount', event.target.value)
+                          }
                           placeholder="Required"
                         />
                       </div>
@@ -369,7 +445,9 @@ function App() {
                         <input
                           type="date"
                           value={draft.transaction_date || ''}
-                          onChange={event => update('transaction_date', event.target.value)}
+                          onChange={event =>
+                            update('transaction_date', event.target.value)
+                          }
                         />
                       </div>
 
@@ -377,7 +455,9 @@ function App() {
                         <label>Merchant *</label>
                         <input
                           value={draft.merchant || ''}
-                          onChange={event => update('merchant', event.target.value)}
+                          onChange={event =>
+                            update('merchant', event.target.value)
+                          }
                           placeholder="Merchant name"
                         />
                       </div>
@@ -386,10 +466,14 @@ function App() {
                         <label>Category</label>
                         <select
                           value={draft.category || 'Other'}
-                          onChange={event => update('category', event.target.value)}
+                          onChange={event =>
+                            update('category', event.target.value)
+                          }
                         >
                           {categories.map(category => (
-                            <option key={category}>{category}</option>
+                            <option key={category} value={category}>
+                              {category}
+                            </option>
                           ))}
                         </select>
                       </div>
@@ -411,7 +495,11 @@ function App() {
                     >
                       {saving
                         ? 'Saving…'
-                        : <><CircleCheck size={17} /> Confirm & save transaction</>}
+                        : (
+                          <>
+                            <CircleCheck size={17} /> Confirm & save transaction
+                          </>
+                        )}
                     </button>
                   </div>
                 )}
@@ -430,9 +518,13 @@ function App() {
 
                 {summary.by_category.length === 0 ? (
                   <div className="empty">
-                    <div className="emptyicon"><ReceiptText size={22} /></div>
+                    <div className="emptyicon">
+                      <ReceiptText size={22} />
+                    </div>
                     <b>No spending data yet</b>
-                    <p>Your category totals will appear after you save a transaction.</p>
+                    <p>
+                      Your category totals will appear after you save a transaction.
+                    </p>
                   </div>
                 ) : (
                   <div className="bars">
@@ -451,7 +543,9 @@ function App() {
                               style={{
                                 width: `${Math.max(
                                   2,
-                                  item.amount / maxCategory * 100
+                                  (Number(item.amount) || 0) /
+                                    maxCategory *
+                                    100
                                 )}%`
                               }}
                             />
@@ -463,7 +557,9 @@ function App() {
 
                 <div className="secure-note">
                   <ShieldCheck size={16} />
-                  <span>Totals are based on database records, not AI estimates.</span>
+                  <span>
+                    Totals are based on database records, not AI estimates.
+                  </span>
                 </div>
               </div>
             </section>
@@ -474,11 +570,18 @@ function App() {
                   <h2>Recent transactions</h2>
                   <p>Your latest saved expenses</p>
                 </div>
-                <button className="textbtn" onClick={() => setPage('ledger')}>
+                <button
+                  className="textbtn"
+                  onClick={() => setPage('ledger')}
+                >
                   View ledger <ArrowUpRight size={15} />
                 </button>
               </div>
-              <Ledger rows={rows.slice(0, 5)} />
+              {loading ? (
+                <p className="muted">Loading transactions…</p>
+              ) : (
+                <Ledger rows={rows.slice(0, 5)} />
+              )}
             </section>
           </>
         ) : (
@@ -488,11 +591,15 @@ function App() {
                 <h2>All transactions</h2>
                 <p>{rows.length} records saved in the database</p>
               </div>
-              <button className="secondary" onClick={load}>
-                <RefreshCw size={15} /> Refresh
+              <button className="secondary" onClick={load} disabled={loading}>
+                <RefreshCw size={15} /> {loading ? 'Refreshing…' : 'Refresh'}
               </button>
             </div>
-            <Ledger rows={rows} />
+            {loading ? (
+              <p className="muted">Loading transactions…</p>
+            ) : (
+              <Ledger rows={rows} />
+            )}
           </section>
         )}
 
@@ -508,9 +615,13 @@ function Ledger({ rows }) {
   if (!rows.length) {
     return (
       <div className="empty">
-        <div className="emptyicon"><ReceiptText size={22} /></div>
+        <div className="emptyicon">
+          <ReceiptText size={22} />
+        </div>
         <b>No transactions yet</b>
-        <p>Extract an expense and confirm it to create your first ledger entry.</p>
+        <p>
+          Extract an expense and confirm it to create your first ledger entry.
+        </p>
       </div>
     );
   }
@@ -534,7 +645,9 @@ function Ledger({ rows }) {
                 <b>{row.merchant}</b>
                 <small>{row.note}</small>
               </td>
-              <td><span className="cat">{row.category}</span></td>
+              <td>
+                <span className="cat">{row.category}</span>
+              </td>
               <td>{row.transaction_date}</td>
               <td className="right amount">{money(row.amount)}</td>
               <td>
@@ -551,4 +664,3 @@ function Ledger({ rows }) {
 }
 
 createRoot(document.getElementById('root')).render(<App />);
-    
